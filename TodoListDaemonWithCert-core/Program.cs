@@ -55,7 +55,7 @@ namespace TodoListDaemonWithCert
             authContext = new AuthenticationContext(config.Authority);
 
             // Initialize the Certificate Credential to be used by ADAL.
-            X509Certificate2 cert = ReadCertificateFromStore(config.CertName);
+            X509Certificate2 cert = ReadCertificate();
             if (cert == null)
             {
                 Console.WriteLine($"Cannot find active certificate '{config.CertName}' in certificates for current user. Please check configuration");
@@ -66,14 +66,7 @@ namespace TodoListDaemonWithCert
             certCred = new ClientAssertionCertificate(config.ClientId, cert);
 
             // Call the ToDoList service 10 times with short delay between calls.
-            int delay = 1000;
-            for (int i = 0; i < 10; i++)
-            {
-                PostNewTodoItem().Wait();
-                Thread.Sleep(delay);
-                DisplayTodoList().Wait();
-                Thread.Sleep(delay);
-            }
+            DisplayTodoList().Wait();
             return errorCode;
         }
 
@@ -81,23 +74,10 @@ namespace TodoListDaemonWithCert
         /// <summary>
         /// Reads the certificate
         /// </summary>
-        private static X509Certificate2 ReadCertificateFromStore(string certName)
+        private static X509Certificate2 ReadCertificate()
         {
-            X509Certificate2 cert = null;
-            using (X509Store store = new X509Store(StoreName.My, StoreLocation.CurrentUser))
-            {
-                store.Open(OpenFlags.ReadOnly);
-                X509Certificate2Collection certCollection = store.Certificates;
-
-                // Find unexpired certificates.
-                X509Certificate2Collection currentCerts = certCollection.Find(X509FindType.FindByTimeValid, DateTime.Now, false);
-
-                // From the collection of unexpired certificates, find the ones with the correct name.
-                X509Certificate2Collection signingCert = currentCerts.Find(X509FindType.FindBySubjectDistinguishedName, certName, false);
-
-                // Return the first certificate in the collection, has the right name and is current.
-                cert = signingCert.OfType<X509Certificate2>().OrderByDescending(c => c.NotBefore).FirstOrDefault();
-            }
+           ///var cert = new X509Certificate2("./key.pfx", "qwerty");
+           var cert = new X509Certificate2("./hub.pfx", "P@ssw0rd");
             return cert;
         }
 
@@ -143,41 +123,6 @@ namespace TodoListDaemonWithCert
             return result;
         }
 
-
-        /// <summary>
-        /// Post a Todo item to the TodoList service
-        /// </summary>
-        static async Task PostNewTodoItem()
-        {
-            // Get a token
-            AuthenticationResult result = await GetAccessToken(config.TodoListResourceId);
-            if (result == null)
-            {
-                Console.WriteLine("Canceling attempt to contact To Do list service.\n");
-                return;
-            }
-
-            // Add the access token to the authorization header of the request.
-            httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", result.AccessToken);
-
-            // Posts a new item by calling the API using the http client
-            string timeNow = DateTime.Now.ToString();
-            string todoText = "Task at time: " + timeNow;
-
-            // Forms encode To Do item and POST to the todo list web api.
-            Console.WriteLine("Posting to To Do list at {0}", timeNow);
-            HttpContent content = new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>("Title", todoText) });
-            HttpResponseMessage response = await httpClient.PostAsync(config.TodoListBaseAddress + "/api/todolist", content);
-            if (response.IsSuccessStatusCode == true)
-            {
-                Console.WriteLine("Successfully posted new To Do item:  {0}\n", todoText);
-            }
-            else
-            {
-                Console.WriteLine("Failed to post a new To Do item\nError:  {0}\n", response.ReasonPhrase);
-            }
-        }
-
    
         /// <summary>
         /// Display the list of todo items by querying the todolist service
@@ -185,26 +130,19 @@ namespace TodoListDaemonWithCert
         /// <returns></returns>
         static async Task DisplayTodoList()
         {
-            AuthenticationResult result = await GetAccessToken(config.TodoListResourceId);
-
+            AuthenticationResult result = await GetAccessToken("https://maxcode.sharepoint.com");
             // Add the access token to the authorization header of the request.
+        
             httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", result.AccessToken);
 
             // Call the To Do list service.
-            Console.WriteLine("Retrieving To Do list at {0}", DateTime.Now.ToString());
-            HttpResponseMessage response = await httpClient.GetAsync(config.TodoListBaseAddress + "/api/todolist");
+            HttpResponseMessage response = await httpClient.GetAsync("https://maxcode.sharepoint.com/timesheet/_api/web/lists/getByTitle('Timesheet')/items");
             
             if (response.IsSuccessStatusCode)
             {
                 // Read the response and output it to the console.
                 string s = await response.Content.ReadAsStringAsync();
-                List<TodoItem> toDoArray = JsonConvert.DeserializeObject<List<TodoItem>>(s);
-                foreach (TodoItem item in toDoArray)
-                {
-                    Console.WriteLine(item.Title);
-                }
-
-                Console.WriteLine("Total item count:  {0}\n", toDoArray.Count);
+                Console.WriteLine(s);
             }
             else
             {
